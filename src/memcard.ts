@@ -6,7 +6,7 @@
 // (key `card:<game>`): it loads it into whichever core is running at start and writes it
 // back whenever the card changes. The format is the raw 128 KB PS1 card libretro cores
 // use for slot 1 (same as .mcr/.mcd in DuckStation, ePSXe, etc.).
-import { idbDelete, idbGet, idbPut } from './db'
+import { idbDelete, idbGet, idbPut, WrongSizeError } from './db'
 
 export const CARD_SIZE = 128 * 1024
 
@@ -23,7 +23,7 @@ export const getCard = (game: string) => idbGet<CardRecord>(cardKey(game))
 export async function importCard(game: string, file: File): Promise<CardRecord> {
   const data = new Uint8Array(await file.arrayBuffer())
   if (data.length !== CARD_SIZE) {
-    throw new Error(`${file.name} is ${data.length} bytes; a PS1 memory card is exactly 128 KB.`)
+    throw new WrongSizeError(file.name, data.length, 'a PS1 memory card is exactly 128 KB')
   }
   const rec = { data, updated: Date.now() }
   await idbPut(cardKey(game), rec)

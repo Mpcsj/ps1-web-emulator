@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useI18n } from './i18n'
 
 // Browsers hide gamepads from a page until a button is pressed while it's focused,
 // so a paired controller looks "missing" until then. Show that state explicitly.
@@ -12,6 +13,7 @@ function shortName(id: string) {
 }
 
 export function ControllerStatus() {
+  const { t } = useI18n()
   const [pads, setPads] = useState<string[]>(connectedPads)
   // Reported by public/player.html while a game runs.
   const [player1, setPlayer1] = useState<string | null | undefined>(undefined)
@@ -44,11 +46,11 @@ export function ControllerStatus() {
   return pads.length ? (
     <p className="pad ok">
       🎮 {pads.map(shortName).join(', ')}
-      {player1 === null && <span className="danger"> · not assigned in emulator</span>}
-      {player1 && <span> · Player 1</span>}
-      {lastInput && <span className="muted"> · last input: {lastInput}</span>}
+      {player1 === null && <span className="danger"> · {t.padUnassigned}</span>}
+      {player1 && <span> · {t.padPlayer1}</span>}
+      {lastInput && <span className="muted"> · {t.padLastInput}: {lastInput}</span>}
     </p>
   ) : (
-    <p className="pad muted">🎮 No controller detected. Press any button on it to connect.</p>
+    <p className="pad muted">🎮 {t.padNone}</p>
   )
 }

@@ -1,2 +1,29 @@
-:root { color-scheme: light dark; font-family: system-ui, sans-serif; }
-body { margin: 0; background: #16161a; color: #eee; }
+/* Palette taken from docs/assets/ps1-web-player-banner.png: midnight blue scene, grey console plastic. */
+:root {
+  color-scheme: dark;
+  --night-0: #040817;
+  --night-1: #070d24;
+  --night-2: #0c1838;
+  --night-3: #142554;
+  --grid: #2f5bd6;
+  --moon: #6f86d9;
+  --plastic: #c9c7c1;
+  --plastic-hi: #e6e4de;
+  --plastic-lo: #7d7b77;
+  --plastic-shadow: #3b3a38;
+  --ink: #e4e8f5;
+  --ink-dim: #93a0c4;
+  --panel: rgba(9, 18, 44, 0.78);
+  --panel-line: #24387a;
+  --triangle: #2fbf8a;
+  --circle: #e5484d;
+  --cross: #4f7cff;
+  --square: #f2b632;
+  --ok: #6fe0a5;
+  --danger: #ff7a6b;
+  --font-display: 'Russo One', 'Arial Black', system-ui, sans-serif;
+  --font-mono: 'Share Tech Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+  font-family: var(--font-mono);
+}
+body { margin: 0; min-height: 100vh; background: linear-gradient(180deg, var(--night-1) 0%, var(--night-2) 55%, var(--night-0) 100%); color: var(--ink); }
+::selection { background: var(--cross); color: #fff; }

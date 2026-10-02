@@ -25,3 +25,15 @@ async function tx<T>(mode: IDBTransactionMode, fn: (s: IDBObjectStore) => IDBReq
 export const idbGet = <T>(key: string) => tx<T | undefined>('readonly', (s) => s.get(key))
 export const idbPut = (key: string, value: unknown) => tx('readwrite', (s) => s.put(value, key))
 export const idbDelete = (key: string) => tx('readwrite', (s) => s.delete(key))
+
+// A picked file has the wrong size for what it claims to be. The UI shows its own,
+// translated message from these fields.
+export class WrongSizeError extends Error {
+  file: string
+  size: number
+  constructor(file: string, size: number, expected: string) {
+    super(`${file} is ${size} bytes; ${expected}.`)
+    this.file = file
+    this.size = size
+  }
+}

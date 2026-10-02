@@ -19,6 +19,9 @@ because the memory card and save names are derived from it), and a "Play bundled
 button appears.
 
 - Developed and tuned against Sheep Raider (NTSC-U), so the defaults below assume it.
+- The UI is in English and Brazilian Portuguese (EN/PT switch, top right; defaults to the
+  browser language). Strings live in `src/i18n.ts`; the emulator's own menus follow the
+  language chosen when the game boots.
 - `public/player.html` hosts EmulatorJS in an iframe, since it relies on globals and
   can't be torn down cleanly inside React. The React app passes `?rom=&name=` to it.
 - Graphics presets (see `src/graphics.ts`):

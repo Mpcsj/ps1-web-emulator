@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react'
+import { WrongSizeError } from './db'
+import { LOCALE, useI18n, type Lang, type Strings } from './i18n'
 import { deleteCard, downloadCard, getCard, importCard, type CardRecord } from './memcard'
 
 type Props = {
@@ -9,14 +11,15 @@ type Props = {
   onCardReplaced: () => void
 }
 
-const timeAgo = (t: number) => {
-  const s = Math.round((Date.now() - t) / 1000)
-  if (s < 60) return 'just now'
-  if (s < 3600) return `${Math.round(s / 60)} min ago`
-  return new Date(t).toLocaleString()
+const timeAgo = (time: number, t: Strings, lang: Lang) => {
+  const s = Math.round((Date.now() - time) / 1000)
+  if (s < 60) return t.justNow
+  if (s < 3600) return t.minAgo(Math.round(s / 60))
+  return new Date(time).toLocaleString(LOCALE[lang])
 }
 
 export function MemoryCardPanel({ game, savedAt, onCardReplaced }: Props) {
+  const { t, lang } = useI18n()
   // undefined = still reading IndexedDB
   const [card, setCard] = useState<CardRecord | null | undefined>(undefined)
   const [error, setError] = useState<string | null>(null)
@@ -36,18 +39,18 @@ export function MemoryCardPanel({ game, savedAt, onCardReplaced }: Props) {
     const file = e.target.files?.[0]
     e.target.value = ''
     if (!file) return
-    if (card && !confirm('Replace the current memory card with this file? Export it first if you want a backup.')) return
+    if (card && !confirm(t.cardConfirmReplace)) return
     try {
       setCard(await importCard(game, file))
       setError(null)
       onCardReplaced()
     } catch (err) {
-      setError((err as Error).message)
+      setError(err instanceof WrongSizeError ? t.cardWrongSize(err.file, err.size) : (err as Error).message)
     }
   }
 
   const onDelete = async () => {
-    if (!confirm('Delete this memory card? All saved progress for this game in this browser will be lost.')) return
+    if (!confirm(t.cardConfirmDelete)) return
     await deleteCard(game)
     setCard(null)
     onCardReplaced()
@@ -56,31 +59,29 @@ export function MemoryCardPanel({ game, savedAt, onCardReplaced }: Props) {
   return (
     <section className="card">
       <div>
-        <strong>Memory card</strong>{' '}
+        <strong>{t.cardTitle}</strong>{' '}
         {card === undefined ? (
-          <span className="muted">checking…</span>
+          <span className="muted">{t.cardChecking}</span>
         ) : card ? (
-          <span className="ok">saved {timeAgo(card.updated)}</span>
+          <span className="ok">{t.cardSaved(timeAgo(card.updated, t, lang))}</span>
         ) : (
-          <span className="muted">empty</span>
+          <span className="muted">{t.cardEmpty}</span>
         )}
         <p className="hint">
-          Saves the game makes to its memory card are stored in this browser automatically, and
-          shared by every graphics preset. Export a backup, or to move your progress to another
-          device or address (e.g. localhost vs. your network IP): each keeps its own saves.
+          {t.cardHint}
         </p>
         {error && <p className="error">{error}</p>}
       </div>
       <div className="card-actions">
         <button className="secondary" disabled={!card} onClick={() => card && downloadCard(game, card)}>
-          Export .srm
+          {t.cardExport}
         </button>
         <label className="button-like secondary-like">
-          Import…
+          {t.cardImport}
           <input type="file" accept=".srm,.mcr,.mcd,.mc,.mem,.bin" onChange={onImport} hidden />
         </label>
         <button className="secondary danger" disabled={!card} onClick={onDelete}>
-          Delete
+          {t.cardDelete}
         </button>
       </div>
     </section>

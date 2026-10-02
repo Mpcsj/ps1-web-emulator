@@ -28,7 +28,7 @@
       window.EJS_pathtodata = 'https://cdn.emulatorjs.org/stable/data/';
       window.EJS_startOnLoaded = true;
       window.EJS_color = '#f5c518';
-      window.EJS_language = 'en-US';
+      window.EJS_language = params.get('lang') || 'en-US';
       // Save states go to the browser (IndexedDB) instead of downloading a file.
       window.EJS_defaultOptions['save-state-location'] ??= 'browser';
       const post = (msg) => parent.postMessage(msg, location.origin);

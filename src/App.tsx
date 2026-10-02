@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
 import './App.css'
+import { Backdrop } from './Backdrop'
 import { BiosPanel } from './BiosPanel'
 import { ControllerStatus } from './ControllerStatus'
 import { GraphicsPanel } from './GraphicsPanel'
 import { MemoryCardPanel } from './MemoryCardPanel'
 import { BIOS_NAME, getBios, type BiosInfo } from './bios'
 import { gameIdFor } from './memcard'
+import { EJS_LANGUAGE, useI18n, type Lang, type Strings } from './i18n'
 import { isEnhancedCore, loadGraphics, saveGraphics, toCoreOptions, type Graphics } from './graphics'
 
 // Optional local disc (public/roms/ is git-ignored; see README). The storage keys derived
@@ -25,7 +27,10 @@ function useBundledRom() {
 }
 
 // game: stable id for the memory card (file name without extension).
-type Source = { url: string; name: string; game: string }
+// lang: EmulatorJS menu language, fixed at boot so switching it doesn't restart the game.
+type Source = { url: string; name: string; game: string; lang?: Lang }
+
+type Status = 'statusIdle' | 'statusLoaded' | 'statusRunning' | 'statusSaving' | 'statusDownloading'
 
 type EmulatorWindow = Window & {
   EJS_emulator?: { gameManager?: { getFrameNum(): number } }
@@ -64,11 +69,12 @@ function flushPlayer(frame: HTMLIFrameElement | null): Promise<void> {
 }
 
 function App() {
+  const { lang, setLang, t } = useI18n()
   const [source, setSource] = useState<Source | null>(null)
   const [graphics, setGraphics] = useState<Graphics>(loadGraphics)
   // Graphics the running emulator was booted with; changing them needs a restart.
   const [applied, setApplied] = useState<Graphics>(graphics)
-  const [status, setStatus] = useState('Choose a game source to start.')
+  const [status, setStatus] = useState<Status>('statusIdle')
   const [running, setRunning] = useState(false)
   const [frame, setFrame] = useState<HTMLIFrameElement | null>(null)
   const [bios, setBios] = useState<BiosInfo | null>(null)
@@ -83,8 +89,8 @@ function App() {
   useEffect(() => {
     const onMessage = (e: MessageEvent) => {
       if (e.origin !== location.origin) return
-      if (e.data?.type === 'ejs-ready') setStatus('Emulator loaded, booting disc…')
-      if (e.data?.type === 'ejs-start') { setStatus('Running.'); setRunning(true) }
+      if (e.data?.type === 'ejs-ready') setStatus('statusLoaded')
+      if (e.data?.type === 'ejs-start') { setStatus('statusRunning'); setRunning(true) }
       if (e.data?.type === 'card-saved') setSavedAt(e.data.updated)
     }
     window.addEventListener('message', onMessage)
@@ -97,13 +103,13 @@ function App() {
 
   const boot = async (src: Source) => {
     if (source) {
-      setStatus('Saving memory card…')
+      setStatus('statusSaving')
       await flushPlayer(frame)
     }
-    setStatus('Downloading emulator core and disc image…')
+    setStatus('statusDownloading')
     setRunning(false)
     setApplied(graphics)
-    setSource(src)
+    setSource({ ...src, lang })
   }
 
   const onPickFile = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -115,11 +121,11 @@ function App() {
   }
 
   const stop = async () => {
-    setStatus('Saving memory card…')
+    setStatus('statusSaving')
     await flushPlayer(frame)
     setSource(null)
     setRunning(false)
-    setStatus('Choose a game source to start.')
+    setStatus('statusIdle')
   }
 
   const playerSrc = source
@@ -128,6 +134,7 @@ function App() {
         name: source.name,
         game: source.game,
         core: applied.core,
+        lang: EJS_LANGUAGE[source.lang ?? lang],
         opts: JSON.stringify(toCoreOptions(applied)),
         ...(isEnhancedCore(applied) ? { bios: BIOS_NAME } : {}),
       })}`
@@ -138,13 +145,22 @@ function App() {
 
   return (
     <main className="app">
-      <header>
-        <h1>PS1 Web Player</h1>
-        <p className="status">
-          {status}
-          {running && fps !== null && <span className="fps"> · {fps} fps</span>}
-        </p>
-        <ControllerStatus />
+      <Backdrop />
+      <header className="hero">
+        <h1 className="title">
+          <span>PS1</span>
+          <span>Web Player</span>
+        </h1>
+        <p className="tagline">{t.tagline}</p>
+        <LangSwitch lang={lang} onChange={setLang} t={t} />
+        <div className="hud">
+          <p className="status">
+            <span className={running ? 'led on' : 'led'} />
+            {t[status]}
+            {running && fps !== null && <span className="fps"> · {fps} fps</span>}
+          </p>
+          <ControllerStatus />
+        </div>
       </header>
 
       {playerSrc ? (
@@ -153,33 +169,38 @@ function App() {
             key={playerSrc}
             ref={setFrame}
             src={playerSrc}
-            title="PS1 emulator"
+            title={t.emulatorTitle}
             allow="fullscreen; gamepad; autoplay"
           />
         </div>
       ) : (
         <div className="picker">
-          {hasBundledRom && (
-            <button onClick={() => boot({ url: BUNDLED_ROM, name: BUNDLED_NAME, game: gameIdFor(BUNDLED_ROM) })}>
-              Play bundled disc
-            </button>
-          )}
-          <label className="file">
-            {hasBundledRom ? 'Or load' : 'Load'} your own disc image (.bin / .chd / .pbp)
-            <input type="file" accept=".bin,.iso,.chd,.pbp,.cue" onChange={onPickFile} />
-          </label>
+          <div className="disc" aria-hidden="true" />
+          <div className="picker-body">
+            <p className="picker-label">{t.insertDisc}</p>
+            {hasBundledRom && (
+              <button className="btn primary" onClick={() => boot({ url: BUNDLED_ROM, name: BUNDLED_NAME, game: gameIdFor(BUNDLED_ROM) })}>
+                <span aria-hidden="true" className="glyph cross">✕</span> {t.playBundled}
+              </button>
+            )}
+            <label className={hasBundledRom ? 'btn' : 'btn primary'}>
+              <span aria-hidden="true" className="glyph circle">○</span> {hasBundledRom ? t.loadAnother : t.loadDisc}
+              <input type="file" accept=".bin,.iso,.chd,.pbp,.cue" onChange={onPickFile} hidden />
+            </label>
+            <p className="picker-hint">{t.discHint}</p>
+          </div>
         </div>
       )}
 
       {source && (
         <div className="actions">
           {dirty && (
-            <button className="apply" onClick={() => boot(source)}>
-              Apply &amp; restart game
+            <button className="btn primary" onClick={() => boot(source)}>
+              {t.applyRestart}
             </button>
           )}
-          <button className="secondary" onClick={stop}>Stop</button>
-          {dirty && <span className="note">Memory card saves are kept. Progress since your last in-game save is lost, so use Save State in the emulator bar if needed.</span>}
+          <button className="btn" onClick={stop}><span aria-hidden="true" className="glyph square">□</span> {t.stop}</button>
+          {dirty && <span className="note">{t.restartNote}</span>}
         </div>
       )}
 
@@ -191,6 +212,18 @@ function App() {
       <GraphicsPanel value={graphics} onChange={setGraphics} />
       <BiosPanel bios={bios} onChange={setBios} active={isEnhancedCore(graphics)} />
     </main>
+  )
+}
+
+function LangSwitch({ lang, onChange, t }: { lang: Lang; onChange: (l: Lang) => void; t: Strings }) {
+  return (
+    <div className="lang" role="group" aria-label={t.language}>
+      {(['en', 'pt'] as const).map((l) => (
+        <button key={l} lang={l === 'pt' ? 'pt-BR' : 'en'} aria-pressed={lang === l} onClick={() => onChange(l)}>
+          {l === 'pt' ? 'PT' : 'EN'}
+        </button>
+      ))}
+    </div>
   )
 }
 

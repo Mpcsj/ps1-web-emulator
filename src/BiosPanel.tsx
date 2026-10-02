@@ -1,4 +1,6 @@
 import { useState } from 'react'
+import { WrongSizeError } from './db'
+import { useI18n } from './i18n'
 import { removeBios, saveBios, type BiosInfo } from './bios'
 
 type Props = {
@@ -8,6 +10,7 @@ type Props = {
 }
 
 export function BiosPanel({ bios, onChange, active }: Props) {
+  const { t } = useI18n()
   const [error, setError] = useState<string | null>(null)
 
   const onPick = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -18,35 +21,36 @@ export function BiosPanel({ bios, onChange, active }: Props) {
       onChange(await saveBios(file))
       setError(null)
     } catch (err) {
-      setError((err as Error).message)
+      setError(err instanceof WrongSizeError ? t.biosWrongSize(err.file, err.size) : (err as Error).message)
     }
   }
 
   return (
     <section className={active ? 'bios' : 'bios inactive'}>
       <div>
-        <strong>PS1 BIOS</strong>{' '}
+        <strong>{t.biosTitle}</strong>{' '}
         {bios ? (
-          <span className="ok">installed ({bios.original})</span>
+          <span className="ok">{t.biosInstalled(bios.original)}</span>
         ) : (
-          <span className="ok">using bundled OpenBIOS</span>
+          <span className="ok">{t.biosBundled}</span>
         )}
         <p className="hint">
-          Beetle PSX needs a BIOS. It uses the bundled open-source{' '}
-          <a href="/bios/OPENBIOS-LICENSE.txt" target="_blank">OpenBIOS</a> (MIT, PCSX-Redux) by default.
-          For best compatibility, load a dump from your own console, ideally the US{' '}
-          <code>SCPH-5501</code> (512 KB). It stays in this browser only.
+          {t.biosHint[0]}
+          <a href="/bios/OPENBIOS-LICENSE.txt" target="_blank">OpenBIOS</a>
+          {t.biosHint[1]}
+          <code>SCPH-5501</code>
+          {t.biosHint[2]}
         </p>
         {error && <p className="error">{error}</p>}
       </div>
       <div className="bios-actions">
         <label className="button-like">
-          {bios ? 'Replace…' : 'Choose BIOS file…'}
+          {bios ? t.biosReplace : t.biosChoose}
           <input type="file" accept=".bin,.rom" onChange={onPick} hidden />
         </label>
         {bios && (
           <button className="secondary" onClick={async () => { await removeBios(); onChange(null) }}>
-            Remove
+            {t.biosRemove}
           </button>
         )}
       </div>

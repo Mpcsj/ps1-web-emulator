@@ -1,3 +1,4 @@
+import { useI18n } from './i18n'
 import { PRESETS, SHADERS, isEnhancedCore, presetOf, type Graphics } from './graphics'
 
 type Props = {
@@ -6,63 +7,68 @@ type Props = {
 }
 
 export function GraphicsPanel({ value, onChange }: Props) {
+  const { t } = useI18n()
   const set = <K extends keyof Graphics>(k: K, v: Graphics[K]) => onChange({ ...value, [k]: v })
   const enhanced = isEnhancedCore(value)
   const active = presetOf(value)
 
   return (
     <section className="gfx">
+      <h2>{t.graphics}</h2>
       <div className="presets">
-        {Object.entries(PRESETS).map(([key, p]) => (
+        {Object.entries(PRESETS).map(([key, p]) => {
+          const [label, hint] = t.presets[key] ?? [p.label, p.hint]
+          return (
           <button
             key={key}
             className={active === key ? 'preset active' : 'preset'}
             onClick={() => onChange(p.graphics)}
-            title={p.hint}
+            title={hint}
           >
-            <strong>{p.label}</strong>
-            <span>{p.hint}</span>
+            <strong>{label}</strong>
+            <span>{hint}</span>
           </button>
-        ))}
+          )
+        })}
       </div>
 
       <details open={active === 'custom'}>
-        <summary>Advanced{active === 'custom' ? ' (custom)' : ''}</summary>
+        <summary>{t.advanced}{active === 'custom' ? ` (${t.custom})` : ''}</summary>
         <div className="grid">
           <label>
-            Emulator core
+            {t.core}
             <select value={value.core} onChange={(e) => set('core', e.target.value as Graphics['core'])}>
-              <option value="pcsx_rearmed">PCSX-ReARMed (fast, native resolution)</option>
-              <option value="mednafen_psx_hw">Beetle PSX (upscaling, heavier)</option>
+              <option value="pcsx_rearmed">{t.corePcsx}</option>
+              <option value="mednafen_psx_hw">{t.coreBeetle}</option>
             </select>
           </label>
 
           <label>
-            Internal resolution
+            {t.resolution}
             <select disabled={!enhanced} value={value.resolution} onChange={(e) => set('resolution', e.target.value as Graphics['resolution'])}>
-              <option value="1x(native)">1× native (320×240)</option>
+              <option value="1x(native)">{t.res1x}</option>
               <option value="2x">2× (640×480)</option>
               <option value="4x">4× (1280×960)</option>
             </select>
           </label>
 
           <label>
-            Post-process shader
+            {t.shader}
             <select value={value.shader} onChange={(e) => set('shader', e.target.value)}>
               {Object.entries(SHADERS).map(([k, label]) => (
-                <option key={k} value={k}>{label}</option>
+                <option key={k} value={k}>{t.shaders[k] ?? label}</option>
               ))}
             </select>
           </label>
 
           <label className="check">
             <input type="checkbox" checked={value.noDither} onChange={(e) => set('noDither', e.target.checked)} />
-            Disable dithering (cleaner gradients)
+            {t.noDither}
           </label>
 
           <label className="check">
             <input type="checkbox" disabled={!enhanced} checked={value.widescreen} onChange={(e) => set('widescreen', e.target.checked)} />
-            Widescreen hack (16:9, may glitch at edges)
+            {t.widescreen}
           </label>
         </div>
       </details>
