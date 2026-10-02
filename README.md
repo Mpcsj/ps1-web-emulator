@@ -1,3 +1,5 @@
+![PS1 Web Player — low-poly PlayStation console and controller with retro CRT styling](docs/assets/ps1-web-player-banner.png)
+
 # PS1 Web Player
 
 Plays PlayStation 1 disc images in the browser with Vite + React + [EmulatorJS](https://emulatorjs.org)
