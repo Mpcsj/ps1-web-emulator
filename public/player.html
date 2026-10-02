@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>PS1 Player</title>
+    <style>
+      html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+      #game { width: 100%; height: 100%; }
+    </style>
+  </head>
+  <body>
+    <div id="game"></div>
+    <script>
+      // Hosted in an iframe so EmulatorJS (which relies on globals and can't be
+      // torn down) is fully isolated from the React app. Config via query string.
+      const params = new URLSearchParams(location.search);
+      window.EJS_player = '#game';
+      // pcsx_rearmed: fast, ships an HLE BIOS. mednafen_psx_hw: WebGL2 renderer with
+      // upscaling / PGXP / texture filtering, but needs a real BIOS.
+      window.EJS_core = params.get('core') || 'pcsx_rearmed';
+      // Core options + shader come from the React app; don't let EmulatorJS's
+      // per-game localStorage settings override them.
+      window.EJS_defaultOptions = JSON.parse(params.get('opts') || '{}');
+      window.EJS_disableLocalStorage = true;
+      window.EJS_gameUrl = params.get('rom');
+      window.EJS_gameName = params.get('name') || 'game';
+      window.EJS_pathtodata = 'https://cdn.emulatorjs.org/stable/data/';
+      window.EJS_startOnLoaded = true;
+      window.EJS_color = '#f5c518';
+      window.EJS_language = 'en-US';
+      // Save states go to the browser (IndexedDB) instead of downloading a file.
+      window.EJS_defaultOptions['save-state-location'] ??= 'browser';
+      const post = (msg) => parent.postMessage(msg, location.origin);
+      window.EJS_ready = () => {
+        fixGamepads();
+        persistControls();
+        post({ type: 'ejs-ready' });
+      };
+
+      // --- Control mapping ---
+      // EJS_disableLocalStorage (above) also turns off EmulatorJS's saving of remapped
+      // controls, so keep them ourselves: one mapping shared by every core, written whenever
+      // EmulatorJS would have saved its settings (Set / Reset / Clear in Control Settings).
+      const CONTROLS_KEY = 'sheep-raider:controls';
+      function persistControls() {
+        const emu = window.EJS_emulator;
+        try {
+          const saved = JSON.parse(localStorage.getItem(CONTROLS_KEY) || 'null');
+          if (saved && typeof saved === 'object') {
+            emu.controls = saved;
+            emu.setupKeys();
+            emu.checkGamepadInputs();
+          }
+        } catch (e) { console.warn('[controls] could not restore', e); }
+        const save = emu.saveSettings.bind(emu);
+        emu.saveSettings = () => {
+          save();
+          try { localStorage.setItem(CONTROLS_KEY, JSON.stringify(emu.controls)); }
+          catch (e) { console.warn('[controls] could not save', e); }
+        };
+      }
+
+      // --- Gamepads ---
+      // EmulatorJS 4.2.3 looks pads up with `gamepad.gamepads[e.gamepadIndex]`, i.e. it uses
+      // the browser's slot number as a position in its own compacted list. A pad that isn't
+      // in slot 0 (common after re-pairing on macOS) is then never assigned to a player and
+      // every press throws. Translate the slot to the list position before EmulatorJS sees it,
+      // and assign the first pad to Player 1 if nothing claimed it.
+      function fixGamepads() {
+        const proto = window.GamepadHandler && window.GamepadHandler.prototype;
+        if (proto && !proto.__slotFix) {
+          const dispatch = proto.dispatchEvent;
+          proto.dispatchEvent = function (name, arg) {
+            // 'disconnected' already looks pads up by slot; leave it alone.
+            if (arg && name !== 'disconnected' && arg.gamepadIndex !== undefined) {
+              const pos = this.gamepads.findIndex((g) => g && g.index === arg.gamepadIndex);
+              if (pos >= 0) arg.gamepadIndex = pos;
+            }
+            if (name === 'buttondown') post({ type: 'pad-input', label: arg && arg.label });
+            return dispatch.call(this, name, arg);
+          };
+          proto.__slotFix = true;
+        }
+        setInterval(() => {
+          const emu = window.EJS_emulator;
+          const pads = emu && emu.gamepad && emu.gamepad.gamepads.filter(Boolean);
+          if (!pads || !emu.gamepadSelection) return;
+          const keys = pads.map((g) => g.id + '_' + g.index);
+          if (keys.length && !emu.gamepadSelection.some((s) => keys.includes(s))) {
+            emu.gamepadSelection[0] = keys[0];
+            emu.updateGamepadLabels && emu.updateGamepadLabels();
+            console.log('[pad] assigned to player 1:', keys[0]);
+          }
+          post({ type: 'pad-status', player1: emu.gamepadSelection[0] || null });
+        }, 1000);
+      }
+      window.EJS_onGameStart = () => {
+        restoreCard().finally(() => post({ type: 'ejs-start' }));
+        setInterval(() => persistCard('interval'), 10000);
+      };
+
+      // --- IndexedDB (same DB/store as src/db.ts) ---
+      function idb(mode, fn) {
+        return new Promise((resolve, reject) => {
+          const req = indexedDB.open('sheep-raider', 1);
+          req.onupgradeneeded = () => req.result.createObjectStore('files');
+          req.onerror = () => reject(req.error);
+          req.onsuccess = () => {
+            const r = fn(req.result.transaction('files', mode).objectStore('files'));
+            r.onsuccess = () => resolve(r.result);
+            r.onerror = () => reject(r.error);
+          };
+        });
+      }
+      const idbGet = (key) => idb('readonly', (s) => s.get(key)).catch(() => null);
+
+      // --- Memory card (see src/memcard.ts) ---
+      // One canonical card per game in IndexedDB, shared by every core. EmulatorJS's
+      // own per-core .srm is only flushed every 5 min, so we flush it ourselves.
+      const CARD_KEY = 'card:' + (params.get('game') || 'game');
+      let lastCard = null;
+      const gm = () => window.EJS_emulator && window.EJS_emulator.gameManager;
+      const sameBytes = (a, b) => a && b && a.length === b.length && a.every((v, i) => v === b[i]);
+
+      function writeSaveFile(data) {
+        const g = gm(), path = g.getSaveFilePath();
+        let dir = '';
+        for (const part of path.split('/').slice(1, -1)) {
+          dir += '/' + part;
+          if (!g.FS.analyzePath(dir).exists) g.FS.mkdir(dir);
+        }
+        if (g.FS.analyzePath(path).exists) g.FS.unlink(path);
+        g.FS.writeFile(path, data);
+        g.loadSaveFiles();
+      }
+
+      async function restoreCard() {
+        const rec = await idbGet(CARD_KEY);
+        if (!rec) return;
+        writeSaveFile(rec.data);
+        lastCard = rec.data;
+        console.log('[save] memory card restored', rec.data.length, 'bytes');
+      }
+
+      let persisting = Promise.resolve();
+      function persistCard(reason) {
+        // Serialize so an interval tick and a flush never interleave.
+        persisting = persisting.then(async () => {
+          const g = gm();
+          if (!g || !window.EJS_emulator.started) return;
+          g.saveSaveFiles(); // core SRAM -> .srm in the emulator FS
+          const path = g.getSaveFilePath();
+          if (!g.FS.analyzePath(path).exists) return;
+          const data = g.FS.readFile(path);
+          if (sameBytes(data, lastCard)) return;
+          const updated = Date.now();
+          await idb('readwrite', (s) => s.put({ data, updated }, CARD_KEY));
+          lastCard = data;
+          console.log('[save] memory card saved (' + reason + ')');
+          post({ type: 'card-saved', updated });
+        }).catch((e) => console.warn('[save] failed', e));
+        return persisting;
+      }
+
+      // Leaving the page: best effort (IndexedDB writes may not finish on a hard close,
+      // which is why the 10 s interval exists).
+      addEventListener('pagehide', () => persistCard('pagehide'));
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'hidden') persistCard('hidden');
+      });
+
+      addEventListener('message', async (e) => {
+        if (e.origin !== location.origin) return;
+        if (e.data?.type === 'flush') {
+          await persistCard('flush');
+          post({ type: 'flushed', id: e.data.id });
+        } else if (e.data?.type === 'card-load' && gm()) {
+          // Card imported / deleted in the React app while running.
+          const rec = await idbGet(CARD_KEY);
+          writeSaveFile(rec ? rec.data : new Uint8Array(128 * 1024));
+          lastCard = rec ? rec.data : null;
+        }
+      });
+
+      // BIOS picked in the React app (src/bios.ts). Written straight into the
+      // emulator FS next to the game (where EJS_biosUrl would put it) via
+      // EJS_externalFiles: EJS_biosUrl chokes on File/Blob values in stable.
+      const readBios = () => idbGet('bios');
+
+      (async () => {
+        if (params.get('bios')) {
+          // User's own dump if they picked one, else the bundled OpenBIOS (MIT,
+          // PCSX-Redux) under the filename the core looks for.
+          const rec = await readBios();
+          const blob = rec ? rec.blob : await fetch('/bios/openbios.bin').then((r) => r.blob());
+          window.EJS_externalFiles = { ['/' + params.get('bios')]: blob };
+        }
+        const s = document.createElement('script');
+        s.src = window.EJS_pathtodata + 'loader.js';
+        document.body.appendChild(s);
+      })();
+    </script>
+  </body>
+</html>
